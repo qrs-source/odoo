@@ -36,7 +36,6 @@
 # Aurélien Pillevesse <aurelienpillevesse@hotmail.fr>, 2020
 # Eloïse Stilmant <est@odoo.com>, 2020
 # William Olhasque <william.olhasque@scopea.fr>, 2020
-# Cécile Collart <cco@odoo.com>, 2020
 # Olivier ANDRE <frsw194@gmail.com>, 2020
 # a270031086f2a0d3514bc0cb507b48f6, 2020
 # Gilles Mangin <gilles.mangin@phidias.fr>, 2020
@@ -45,6 +44,11 @@
 # Martin Trigaux, 2021
 # Sébastien BÜHL <buhlsebastien@gmail.com>, 2021
 # Xavier Belmere <Info@cartmeleon.com>, 2021
+# Alexandra Jubert <aju@odoo.com>, 2021
+# guva_odoo <guva@odoo.com>, 2021
+# Vallen Delobel <edv@odoo.com>, 2021
+# Cécile Collart <cco@odoo.com>, 2022
+# Khadija Mbazaa <khadija.mbazaa@gmail.com>, 2022
 # 
 msgid ""
 msgstr ""
@@ -52,7 +56,7 @@ msgstr ""
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2021-02-25 10:30+0000\n"
 "PO-Revision-Date: 2020-09-07 08:19+0000\n"
-"Last-Translator: Xavier Belmere <Info@cartmeleon.com>, 2021\n"
+"Last-Translator: Khadija Mbazaa <khadija.mbazaa@gmail.com>, 2022\n"
 "Language-Team: French (https://www.transifex.com/odoo/teams/41243/fr/)\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -205,7 +209,7 @@ msgstr "(total)"
 #: code:addons/web/static/src/js/control_panel/search_bar.js:0
 #, python-format
 msgid "(no result)"
-msgstr ""
+msgstr "Pas de résultat"
 
 #. module: web
 #. openerp-web
@@ -747,6 +751,7 @@ msgstr ""
 
 #. module: web
 #. openerp-web
+#: code:addons/web/static/src/js/fields/basic_fields.js:0
 #: code:addons/web/static/src/xml/base.xml:0
 #: code:addons/web/static/src/xml/base.xml:0
 #, python-format
@@ -1013,6 +1018,7 @@ msgstr "La vue calendrier n'a pas d'attribut 'date_start' défini."
 #. openerp-web
 #: code:addons/web/static/src/js/core/dialog.js:0
 #: code:addons/web/static/src/js/core/dialog.js:0
+#: code:addons/web/static/src/js/fields/basic_fields.js:0
 #: code:addons/web/static/src/js/fields/relational_fields.js:0
 #: code:addons/web/static/src/js/fields/upgrade_fields.js:0
 #: code:addons/web/static/src/js/services/crash_manager.js:0
@@ -1274,7 +1280,7 @@ msgstr "Contrôle"
 #: code:addons/web/static/src/xml/base.xml:0
 #, python-format
 msgid "Control panel buttons"
-msgstr ""
+msgstr "Boutons du panneau de commande"
 
 #. module: web
 #. openerp-web
@@ -2676,7 +2682,7 @@ msgstr "Nouveau"
 #: code:addons/web/static/src/js/fields/relational_fields.js:0
 #, python-format
 msgid "New %s"
-msgstr ""
+msgstr "Nouveau %s"
 
 #. module: web
 #. openerp-web
@@ -3053,7 +3059,7 @@ msgstr "Ouvrir : "
 #: code:addons/web/static/src/js/views/list/list_renderer.js:0
 #, python-format
 msgid "Optional columns"
-msgstr ""
+msgstr "Colonnes optionnelles"
 
 #. module: web
 #. openerp-web
@@ -3367,28 +3373,28 @@ msgstr "Violet"
 #: code:addons/web/static/src/js/control_panel/search_utils.js:0
 #, python-format
 msgid "Q1"
-msgstr "S1"
+msgstr "T1"
 
 #. module: web
 #. openerp-web
 #: code:addons/web/static/src/js/control_panel/search_utils.js:0
 #, python-format
 msgid "Q2"
-msgstr "S2"
+msgstr "T2"
 
 #. module: web
 #. openerp-web
 #: code:addons/web/static/src/js/control_panel/search_utils.js:0
 #, python-format
 msgid "Q3"
-msgstr "S3"
+msgstr "T3"
 
 #. module: web
 #. openerp-web
 #: code:addons/web/static/src/js/control_panel/search_utils.js:0
 #, python-format
 msgid "Q4"
-msgstr "S4"
+msgstr "T4"
 
 #. module: web
 #: model:ir.model.fields.selection,name:web.selection__ir_actions_act_window_view__view_mode__qweb
@@ -4702,6 +4708,12 @@ msgstr "Oui"
 #, python-format
 msgid "Yesterday"
 msgstr "Hier"
+
+#. module: web
+#: code:addons/web/controllers/main.py:0
+#, python-format
+msgid "You are not allowed to upload an attachment here."
+msgstr "Vous n'êtes pas autorisé à télécharger une pièce jointe ici."
 
 #. module: web
 #. openerp-web

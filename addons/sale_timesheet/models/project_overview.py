@@ -3,7 +3,6 @@ import babel.dates
 from dateutil.relativedelta import relativedelta
 import itertools
 import json
-from odoo.osv import expression
 
 from odoo import fields, _, models
 from odoo.osv import expression
@@ -22,9 +21,7 @@ class Project(models.Model):
 
     def _qweb_prepare_qcontext(self, view_id, domain):
         values = super()._qweb_prepare_qcontext(view_id, domain)
-        project_ids = self.env.context.get('active_ids')
-        if project_ids:
-            domain = expression.AND([[('id', 'in', project_ids)], domain])
+
         projects = self.search(domain)
         values.update(projects._plan_prepare_values())
         values['actions'] = projects._plan_prepare_actions(values)
@@ -32,14 +29,8 @@ class Project(models.Model):
         return values
 
     def _plan_get_employee_ids(self):
-        user_ids = self.env['project.task'].sudo().read_group([('project_id', 'in', self.ids), ('user_id', '!=', False)], ['user_id'], ['user_id'])
-        user_ids = [user_id['user_id'][0] for user_id in user_ids]
-        employee_ids = self.env['res.users'].sudo().search_read([('id', 'in', user_ids)], ['employee_ids'])
-        # flatten the list of list
-        employee_ids = list(itertools.chain.from_iterable([employee_id['employee_ids'] for employee_id in employee_ids]))
-
         aal_employee_ids = self.env['account.analytic.line'].read_group([('project_id', 'in', self.ids), ('employee_id', '!=', False)], ['employee_id'], ['employee_id'])
-        employee_ids.extend(list(map(lambda x: x['employee_id'][0], aal_employee_ids)))
+        employee_ids = list(map(lambda x: x['employee_id'][0], aal_employee_ids))
         return employee_ids
 
     def _plan_prepare_values(self):
@@ -110,9 +101,10 @@ class Project(models.Model):
             'amount_untaxed_to_invoice': 'to_invoice',
             'timesheet_cost': 'cost',
             'expense_cost': 'expense_cost',
-            'expense_amount_untaxed_invoiced':  'expense_amount_untaxed_invoiced',
+            'expense_amount_untaxed_invoiced': 'expense_amount_untaxed_invoiced',
+            'expense_amount_untaxed_to_invoice': 'expense_amount_untaxed_to_invoice',
             'other_revenues': 'other_revenues'
-            }
+        }
         profit = dict.fromkeys(list(field_map.values()) + ['other_revenues', 'total'], 0.0)
         profitability_raw_data = self.env['project.profitability.report'].read_group([('project_id', 'in', self.ids)], ['project_id'] + list(field_map), ['project_id'])   
         for data in profitability_raw_data:
@@ -441,7 +433,7 @@ class Project(models.Model):
             action_data = _to_action_data('project.project', res_id=self.id,
                                           views=[[self.env.ref('project.edit_project').id, 'form']])
         else:
-            action_data = _to_action_data(action=self.env.ref('project.open_view_project_all_config').sudo(),
+            action_data = _to_action_data(action=self.env.ref('project.open_view_project_all_config'),
                                           domain=[('id', 'in', self.ids)])
 
         stat_buttons.append({
@@ -471,7 +463,7 @@ class Project(models.Model):
             'count': sum(self.mapped('task_count')),
             'icon': 'fa fa-tasks',
             'action': _to_action_data(
-                action=self.env.ref('project.action_view_task').sudo(),
+                action=self.env.ref('project.action_view_task'),
                 domain=tasks_domain,
                 context=tasks_context
             )
@@ -481,7 +473,7 @@ class Project(models.Model):
             'count': self.env['project.task'].search_count(late_tasks_domain),
             'icon': 'fa fa-tasks',
             'action': _to_action_data(
-                action=self.env.ref('project.action_view_task').sudo(),
+                action=self.env.ref('project.action_view_task'),
                 domain=late_tasks_domain,
                 context=tasks_context,
             ),
@@ -491,7 +483,7 @@ class Project(models.Model):
             'count': self.env['project.task'].search_count(overtime_tasks_domain),
             'icon': 'fa fa-tasks',
             'action': _to_action_data(
-                action=self.env.ref('project.action_view_task').sudo(),
+                action=self.env.ref('project.action_view_task'),
                 domain=overtime_tasks_domain,
                 context=tasks_context,
             ),
@@ -511,7 +503,7 @@ class Project(models.Model):
                     'count': len(sale_orders),
                     'icon': 'fa fa-dollar',
                     'action': _to_action_data(
-                        action=self.env.ref('sale.action_orders').sudo(),
+                        action=self.env.ref('sale.action_orders'),
                         domain=[('id', 'in', sale_orders.ids)],
                         context={'create': False, 'edit': False, 'delete': False}
                     )
@@ -528,7 +520,7 @@ class Project(models.Model):
                         'count': len(invoice_ids),
                         'icon': 'fa fa-pencil-square-o',
                         'action': _to_action_data(
-                            action=self.env.ref('account.action_move_out_invoice_type').sudo(),
+                            action=self.env.ref('account.action_move_out_invoice_type'),
                             domain=[('id', 'in', invoice_ids), ('move_type', '=', 'out_invoice')],
                             context={'create': False, 'delete': False}
                         )
@@ -559,7 +551,12 @@ def _to_action_data(model=None, *, action=None, views=None, res_id=None, domain=
     # pass in either action or (model, views)
     if action:
         assert model is None and views is None
-        act = clean_action(action.read()[0], env=action.env)
+        act = {
+            field: value
+            for field, value in action.sudo().read()[0].items()
+            if field in action._get_readable_fields()
+        }
+        act = clean_action(act, env=action.env)
         model = act['res_model']
         views = act['views']
     # FIXME: search-view-id, possibly help?

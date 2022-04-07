@@ -5,8 +5,7 @@ from itertools import chain
 
 from odoo import api, fields, models, tools, _
 from odoo.exceptions import UserError, ValidationError
-from odoo.tools import float_repr
-from odoo.tools.misc import get_lang
+from odoo.tools.misc import formatLang, get_lang
 
 
 class Pricelist(models.Model):
@@ -220,7 +219,9 @@ class Pricelist(models.Model):
                     price = product.price_compute(rule.base)[product.id]
 
                 if price is not False:
-                    price = rule._compute_price(price, price_uom, product, quantity=qty, partner=partner)
+                    # pass the date through the context for further currency conversions
+                    rule_with_date_context = rule.with_context(date=date)
+                    price = rule_with_date_context._compute_price(price, price_uom, product, quantity=qty, partner=partner)
                     suitable_rule = rule
                 break
             # Final price conversion into pricelist currency
@@ -345,6 +346,15 @@ class Pricelist(models.Model):
             'label': _('Import Template for Pricelists'),
             'template': '/product/static/xls/product_pricelist.xls'
         }]
+    
+    def unlink(self):
+        for pricelist in self:
+            linked_items = self.env['product.pricelist.item'].sudo().with_context(active_test=False).search(
+                [('base', '=', 'pricelist'), ('base_pricelist_id', '=', pricelist.id), ('pricelist_id', 'not in', self.ids)])
+            if linked_items:
+                raise UserError(_('You cannot delete this pricelist (%s), it is used in other pricelist(s) : \n%s',
+                    pricelist.display_name, '\n'.join(linked_items.pricelist_id.mapped('display_name'))))
+        return super().unlink()
 
 
 class ResCountryGroup(models.Model):
@@ -477,23 +487,7 @@ class PricelistItem(models.Model):
                 item.name = _("All Products")
 
             if item.compute_price == 'fixed':
-                decimal_places = self.env['decimal.precision'].precision_get('Product Price')
-                if item.currency_id.position == 'after':
-                    item.price = "%s %s" % (
-                        float_repr(
-                            item.fixed_price,
-                            decimal_places,
-                        ),
-                        item.currency_id.symbol,
-                    )
-                else:
-                    item.price = "%s %s" % (
-                        item.currency_id.symbol,
-                        float_repr(
-                            item.fixed_price,
-                            decimal_places,
-                        ),
-                    )
+                item.price = formatLang(item.env, item.fixed_price, monetary=True, dp="Product Price", currency_obj=item.currency_id)
             elif item.compute_price == 'percentage':
                 item.price = _("%s %% discount", item.percent_price)
             else:
@@ -507,6 +501,7 @@ class PricelistItem(models.Model):
             self.percent_price = 0.0
         if self.compute_price != 'formula':
             self.update({
+                'base': 'list_price',
                 'price_discount': 0.0,
                 'price_surcharge': 0.0,
                 'price_round': 0.0,
@@ -574,8 +569,8 @@ class PricelistItem(models.Model):
         res = super(PricelistItem, self).write(values)
         # When the pricelist changes we need the product.template price
         # to be invalided and recomputed.
-        self.flush()
-        self.invalidate_cache()
+        self.env['product.template'].invalidate_cache(['price'])
+        self.env['product.product'].invalidate_cache(['price'])
         return res
 
     def _compute_price(self, price, price_uom, product, quantity=1.0, partner=False):
@@ -583,6 +578,7 @@ class PricelistItem(models.Model):
            The unused parameters are there to make the full context available for overrides.
         """
         self.ensure_one()
+        date = self.env.context.get('date') or fields.Date.today()
         convert_to_price_uom = (lambda price: product.uom_id._compute_price(price, price_uom))
         if self.compute_price == 'fixed':
             price = convert_to_price_uom(self.fixed_price)
@@ -592,18 +588,30 @@ class PricelistItem(models.Model):
             # complete formula
             price_limit = price
             price = (price - (price * (self.price_discount / 100))) or 0.0
+            if self.base == 'standard_price':
+                price_currency = product.cost_currency_id
+            elif self.base == 'pricelist':
+                price_currency = self.currency_id  # Already converted before to the pricelist currency
+            else:
+                price_currency = product.currency_id
             if self.price_round:
                 price = tools.float_round(price, precision_rounding=self.price_round)
 
+            def convert_to_base_price_currency(amount):
+                return self.currency_id._convert(amount, price_currency, self.env.company, date, round=False)
+
             if self.price_surcharge:
-                price_surcharge = convert_to_price_uom(self.price_surcharge)
+                price_surcharge = convert_to_base_price_currency(self.price_surcharge)
+                price_surcharge = convert_to_price_uom(price_surcharge)
                 price += price_surcharge
 
             if self.price_min_margin:
-                price_min_margin = convert_to_price_uom(self.price_min_margin)
+                price_min_margin = convert_to_base_price_currency(self.price_min_margin)
+                price_min_margin = convert_to_price_uom(price_min_margin)
                 price = max(price, price_limit + price_min_margin)
 
             if self.price_max_margin:
-                price_max_margin = convert_to_price_uom(self.price_max_margin)
+                price_max_margin = convert_to_base_price_currency(self.price_max_margin)
+                price_max_margin = convert_to_price_uom(price_max_margin)
                 price = min(price, price_limit + price_max_margin)
         return price

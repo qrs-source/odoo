@@ -3,6 +3,7 @@
 # OpenERP HTTP layer
 #----------------------------------------------------------
 import ast
+import cgi
 import collections
 import contextlib
 import copy
@@ -54,6 +55,7 @@ from .sql_db import flush_env
 from .tools.func import lazy_property
 from .tools import ustr, consteq, frozendict, pycompat, unique, date_utils
 from .tools.mimetypes import guess_mimetype
+from .tools.misc import str2bool
 from .tools._vendor import sessions
 from .modules.module import module_manifest
 
@@ -1172,6 +1174,14 @@ def session_gc(session_store):
             except OSError:
                 pass
 
+ODOO_DISABLE_SESSION_GC = str2bool(os.environ.get('ODOO_DISABLE_SESSION_GC', '0'))
+
+if ODOO_DISABLE_SESSION_GC:
+    # empty function, in case another module would be
+    # calling it out of setup_session()
+    session_gc = lambda s: None
+
+
 #----------------------------------------------------------
 # WSGI Layer
 #----------------------------------------------------------
@@ -1273,6 +1283,8 @@ class Root(object):
         # Setup http sessions
         path = odoo.tools.config.session_dir
         _logger.debug('HTTP sessions stored in: %s', path)
+        if ODOO_DISABLE_SESSION_GC:
+            _logger.info('Default session GC disabled, manual GC required.')
         return sessions.FilesystemSessionStore(
             path, session_class=OpenERPSession, renew_missing=True)
 
@@ -1385,6 +1397,7 @@ class Root(object):
             response = Response(result, mimetype='text/html')
         else:
             response = result
+            self.set_csp(response)
 
         save_session = (not request.endpoint) or request.endpoint.routing.get('save_session', True)
         if not save_session:
@@ -1410,13 +1423,29 @@ class Root(object):
 
         return response
 
+
+    def set_csp(self, response):
+        # ignore HTTP errors
+        if not isinstance(response, werkzeug.wrappers.BaseResponse):
+            return
+
+        headers = response.headers
+        if 'Content-Security-Policy' in headers:
+            return
+
+        mime, _params = cgi.parse_header(headers.get('Content-Type', ''))
+        if not mime.startswith('image/'):
+            return
+
+        headers['Content-Security-Policy'] = "default-src 'none'"
+
+
     def dispatch(self, environ, start_response):
         """
         Performs the actual WSGI dispatching for the application.
         """
         try:
             httprequest = werkzeug.wrappers.Request(environ)
-            httprequest.app = self
             httprequest.parameter_storage_class = werkzeug.datastructures.ImmutableOrderedMultiDict
 
             current_thread = threading.current_thread()
@@ -1633,34 +1662,18 @@ def content_disposition(filename):
 def set_safe_image_headers(headers, content):
     """Return new headers based on `headers` but with `Content-Length` and
     `Content-Type` set appropriately depending on the given `content` only if it
-    is safe to do."""
-    content_type = guess_mimetype(content)
-    safe_types = ['image/jpeg', 'image/png', 'image/gif', 'image/x-icon']
-    if content_type in safe_types:
-        headers = set_header_field(headers, 'Content-Type', content_type)
-    set_header_field(headers, 'Content-Length', len(content))
-    return headers
-
-
-def set_header_field(headers, name, value):
-    """ Return new headers based on `headers` but with `value` set for the
-    header field `name`.
-
-    :param headers: the existing headers
-    :type headers: list of tuples (name, value)
-
-    :param name: the header field name
-    :type name: string
-
-    :param value: the value to set for the `name` header
-    :type value: string
-
-    :return: the updated headers
-    :rtype: list of tuples (name, value)
+    is safe to do, as well as `X-Content-Type-Options: nosniff` so that if the
+    file is of an unsafe type, it is not interpreted as that type if the
+    `Content-type` header was already set to a different mimetype
     """
-    dictheaders = dict(headers)
-    dictheaders[name] = value
-    return list(dictheaders.items())
+    headers = werkzeug.datastructures.Headers(headers)
+    safe_types = {'image/jpeg', 'image/png', 'image/gif', 'image/x-icon'}
+    content_type = guess_mimetype(content)
+    if content_type in safe_types:
+        headers['Content-Type'] = content_type
+    headers['X-Content-Type-Options'] = 'nosniff'
+    headers['Content-Length'] = len(content)
+    return list(headers)
 
 
 #  main wsgi handler

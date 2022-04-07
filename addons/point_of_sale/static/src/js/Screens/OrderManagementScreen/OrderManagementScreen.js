@@ -1,7 +1,7 @@
 odoo.define('point_of_sale.OrderManagementScreen', function (require) {
     'use strict';
 
-    const { useContext, useRef } = owl.hooks;
+    const { useContext } = owl.hooks;
     const { useListener } = require('web.custom_hooks');
     const ControlButtonsMixin = require('point_of_sale.ControlButtonsMixin');
     const NumberBuffer = require('point_of_sale.NumberBuffer');
@@ -13,7 +13,7 @@ odoo.define('point_of_sale.OrderManagementScreen', function (require) {
     class OrderManagementScreen extends ControlButtonsMixin(IndependentToOrderScreen) {
         constructor() {
             super(...arguments);
-            useListener('close-screen', this._close);
+            useListener('close-screen', this.close);
             useListener('set-numpad-mode', this._setNumpadMode);
             useListener('click-order', this._onClickOrder);
             useListener('next-page', this._onNextPage);
@@ -27,7 +27,6 @@ odoo.define('point_of_sale.OrderManagementScreen', function (require) {
             OrderFetcher.setComponent(this);
             OrderFetcher.setConfigId(this.env.pos.config_id);
             this.orderManagementContext = useContext(contexts.orderManagement);
-            this.receiptRef = useRef('order-receipt');
         }
         mounted() {
             OrderFetcher.on('update', this, this.render);
@@ -79,16 +78,6 @@ odoo.define('point_of_sale.OrderManagementScreen', function (require) {
         _onClickOrder({ detail: clickedOrder }) {
             if (!clickedOrder || clickedOrder.locked) {
                 this.orderManagementContext.selectedOrder = clickedOrder;
-                let currentPOSOrder = this.env.pos.get_order();
-                if (clickedOrder.attributes.client){
-                    currentPOSOrder.set_client(clickedOrder.attributes.client);
-                }
-                if (clickedOrder.fiscal_position){
-                    currentPOSOrder.fiscal_position = clickedOrder.fiscal_position;
-                }
-                if (clickedOrder.pricelist){
-                    currentPOSOrder.set_pricelist(clickedOrder.pricelist);
-                }
             } else {
                 this._setOrder(clickedOrder);
             }
@@ -101,15 +90,6 @@ odoo.define('point_of_sale.OrderManagementScreen', function (require) {
             if (order === this.env.pos.get_order()) {
                 this.close();
             }
-        }
-        _close() {
-            let currentOrder = this.env.pos.get_order();
-            if (currentOrder){
-                currentOrder.set_client(false);
-                currentOrder.fiscal_position = false;
-                currentOrder.set_pricelist(this.env.pos.default_pricelist);
-            }
-            this.close();
         }
     }
     OrderManagementScreen.template = 'OrderManagementScreen';

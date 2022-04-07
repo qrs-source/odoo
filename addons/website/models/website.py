@@ -12,7 +12,7 @@ from werkzeug import urls
 from werkzeug.datastructures import OrderedMultiDict
 from werkzeug.exceptions import NotFound
 
-from odoo import api, fields, models, tools
+from odoo import api, fields, models, tools, http
 from odoo.addons.http_routing.models.ir_http import slugify, _guess_mimetype, url_for
 from odoo.addons.website.models.ir_http import sitemap_qs2dom
 from odoo.addons.portal.controllers.portal import pager
@@ -151,9 +151,12 @@ class Website(models.Model):
                 # don't add child menu if parent is forbidden
                 if menu.parent_id and menu.parent_id in menus:
                     menu.parent_id._cache['child_id'] += (menu.id,)
+
             # prefetch every website.page and ir.ui.view at once
             menus.mapped('is_visible')
-            website.menu_id = menus and menus.filtered(lambda m: not m.parent_id)[0].id or False
+
+            top_menus = menus.filtered(lambda m: not m.parent_id)
+            website.menu_id = top_menus and top_menus[0].id or False
 
     # self.env.uid for ir.rule groups on menu
     @tools.ormcache('self.env.uid', 'self.id')
@@ -791,7 +794,7 @@ class Website(models.Model):
             :rtype: list({name: str, url: str})
         """
 
-        router = request.httprequest.app.get_db_router(request.db)
+        router = http.root.get_db_router(request.db)
         # Force enumeration to be performed as public user
         url_set = set()
 
@@ -933,6 +936,9 @@ class Website(models.Model):
     def button_go_website(self, path='/', mode_edit=False):
         self._force()
         if mode_edit:
+            # If the user gets on a translated page (e.g /fr) the editor will
+            # never start. Forcing the default language fixes this issue.
+            path = url_for(path, self.default_lang_id.url_code)
             path += '?enable_editor=1'
         return {
             'type': 'ir.actions.act_url',
@@ -942,15 +948,19 @@ class Website(models.Model):
 
     def _get_http_domain(self):
         """Get the domain of the current website, prefixed by http if no
-        scheme is specified.
+        scheme is specified and withtout trailing /.
 
         Empty string if no domain is specified on the website.
         """
         self.ensure_one()
         if not self.domain:
             return ''
-        res = urls.url_parse(self.domain)
-        return 'http://' + self.domain if not res.scheme else self.domain
+
+        domain = self.domain
+        if not self.domain.startswith('http'):
+            domain = 'http://%s' % domain
+
+        return domain.rstrip('/')
 
     def get_base_url(self):
         self.ensure_one()
@@ -966,7 +976,7 @@ class Website(models.Model):
         """
         self.ensure_one()
         if request.endpoint:
-            router = request.httprequest.app.get_db_router(request.db).bind('')
+            router = http.root.get_db_router(request.db).bind('')
             arguments = dict(request.endpoint_arguments)
             for key, val in list(arguments.items()):
                 if isinstance(val, models.BaseModel):
@@ -1016,6 +1026,9 @@ class Website(models.Model):
 
     def _get_cached(self, field):
         return self._get_cached_values()[field]
+
+    def _get_relative_url(self, url):
+        return urls.url_parse(url).replace(scheme='', netloc='').to_url()
 
 
 class BaseModel(models.AbstractModel):

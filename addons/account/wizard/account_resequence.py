@@ -25,6 +25,8 @@ class ReSequenceWizard(models.TransientModel):
     @api.model
     def default_get(self, fields_list):
         values = super(ReSequenceWizard, self).default_get(fields_list)
+        if 'move_ids' not in fields_list:
+            return values
         active_move_ids = self.env['account.move']
         if self.env.context['active_model'] == 'account.move' and 'active_ids' in self.env.context:
             active_move_ids = self.env['account.move'].browse(self.env.context['active_ids'])
@@ -65,7 +67,7 @@ class ReSequenceWizard(models.TransientModel):
                  or (self.sequence_number_reset == 'year' and line['server-date'][0:4] != previous_line['server-date'][0:4])\
                  or (self.sequence_number_reset == 'month' and line['server-date'][0:7] != previous_line['server-date'][0:7]):
                     if in_elipsis:
-                        changeLines.append({'current_name': _('... (%s other)', in_elipsis), 'new_by_name': '...', 'new_by_date': '...', 'date': '...'})
+                        changeLines.append({'id': 'other_' + str(line['id']), 'current_name': _('... (%s other)', in_elipsis), 'new_by_name': '...', 'new_by_date': '...', 'date': '...'})
                         in_elipsis = 0
                     changeLines.append(line)
                 else:
@@ -105,6 +107,7 @@ class ReSequenceWizard(models.TransientModel):
                 # compute the new values period by period
                 for move in period_recs:
                     new_values[move.id] = {
+                        'id': move.id,
                         'current_name': move.name,
                         'state': move.state,
                         'date': format_date(self.env, move.date),
@@ -129,16 +132,13 @@ class ReSequenceWizard(models.TransientModel):
 
     def resequence(self):
         new_values = json.loads(self.new_values)
-        # Can't change the name of a posted invoice, but we do not want to have the chatter
-        # logging 3 separate changes with [state to draft], [change of name], [state to posted]
-        self.with_context(tracking_disable=True).move_ids.state = 'draft'
         if self.move_ids.journal_id and self.move_ids.journal_id.restrict_mode_hash_table:
             if self.ordering == 'date':
                 raise UserError(_('You can not reorder sequence by date when the journal is locked with a hash.'))
+        self.env['account.move'].browse(int(k) for k in new_values.keys()).name = False
         for move_id in self.move_ids:
             if str(move_id.id) in new_values:
                 if self.ordering == 'keep':
                     move_id.name = new_values[str(move_id.id)]['new_by_name']
                 else:
                     move_id.name = new_values[str(move_id.id)]['new_by_date']
-                move_id.with_context(tracking_disable=True).state = new_values[str(move_id.id)]['state']

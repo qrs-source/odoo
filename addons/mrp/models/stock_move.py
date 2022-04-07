@@ -120,6 +120,12 @@ class StockMove(models.Model):
         for move in self:
             move.order_finished_lot_ids = move.raw_material_production_id.lot_producing_id
 
+    @api.model
+    def _prepare_merge_moves_distinct_fields(self):
+        distinct_fields = super()._prepare_merge_moves_distinct_fields()
+        distinct_fields.append('bom_line_id')
+        return distinct_fields
+
     @api.depends('raw_material_production_id.bom_id')
     def _compute_allowed_operation_ids(self):
         for move in self:
@@ -133,7 +139,7 @@ class StockMove(models.Model):
                 operation_domain = [
                     ('id', 'in', move.raw_material_production_id.bom_id.operation_ids.ids),
                     '|',
-                        ('company_id', '=', self.company_id.id),
+                        ('company_id', '=', move.company_id.id),
                         ('company_id', '=', False)
                 ]
                 move.allowed_operation_ids = self.env['mrp.routing.workcenter'].search(operation_domain)
@@ -202,6 +208,9 @@ class StockMove(models.Model):
                     defaults['state'] = 'done'
                 defaults['product_uom_qty'] = 0.0
                 defaults['additional'] = True
+            elif production_id.state == 'draft':
+                defaults['group_id'] = production_id.procurement_group_id.id
+                defaults['reference'] = production_id.name
         return defaults
 
     def write(self, vals):
@@ -359,12 +368,14 @@ class StockMove(models.Model):
     def _prepare_merge_moves_distinct_fields(self):
         distinct_fields = super()._prepare_merge_moves_distinct_fields()
         distinct_fields.append('created_production_id')
+        distinct_fields.append('bom_line_id')
         return distinct_fields
 
     @api.model
     def _prepare_merge_move_sort_method(self, move):
         keys_sorted = super()._prepare_merge_move_sort_method(move)
         keys_sorted.append(move.created_production_id.id)
+        keys_sorted.append(move.bom_line_id.id)
         return keys_sorted
 
     def _compute_kit_quantities(self, product_id, kit_qty, kit_bom, filters):
@@ -380,24 +391,27 @@ class StockMove(models.Model):
         qty_ratios = []
         boms, bom_sub_lines = kit_bom.explode(product_id, kit_qty)
         for bom_line, bom_line_data in bom_sub_lines:
+            # skip service since we never deliver them
+            if bom_line.product_id.type == 'service':
+                continue
+            if float_is_zero(bom_line_data['qty'], precision_rounding=bom_line.product_uom_id.rounding):
+                # As BoMs allow components with 0 qty, a.k.a. optionnal components, we simply skip those
+                # to avoid a division by zero.
+                continue
             bom_line_moves = self.filtered(lambda m: m.bom_line_id == bom_line)
             if bom_line_moves:
-                if float_is_zero(bom_line_data['qty'], precision_rounding=bom_line.product_uom_id.rounding):
-                    # As BoMs allow components with 0 qty, a.k.a. optionnal components, we simply skip those
-                    # to avoid a division by zero.
-                    continue
                 # We compute the quantities needed of each components to make one kit.
                 # Then, we collect every relevant moves related to a specific component
                 # to know how many are considered delivered.
                 uom_qty_per_kit = bom_line_data['qty'] / bom_line_data['original_qty']
-                qty_per_kit = bom_line.product_uom_id._compute_quantity(uom_qty_per_kit, bom_line.product_id.uom_id)
+                qty_per_kit = bom_line.product_uom_id._compute_quantity(uom_qty_per_kit, bom_line.product_id.uom_id, round=False)
                 if not qty_per_kit:
                     continue
                 incoming_moves = bom_line_moves.filtered(filters['incoming_moves'])
                 outgoing_moves = bom_line_moves.filtered(filters['outgoing_moves'])
                 qty_processed = sum(incoming_moves.mapped('product_qty')) - sum(outgoing_moves.mapped('product_qty'))
                 # We compute a ratio to know how many kits we can produce with this quantity of that specific component
-                qty_ratios.append(qty_processed / qty_per_kit)
+                qty_ratios.append(float_round(qty_processed / qty_per_kit, precision_rounding=bom_line.product_id.uom_id.rounding))
             else:
                 return 0.0
         if qty_ratios:

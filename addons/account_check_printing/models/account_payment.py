@@ -8,6 +8,17 @@ from odoo.tools.misc import formatLang, format_date
 INV_LINES_PER_STUB = 9
 
 
+class AccountPaymentRegister(models.TransientModel):
+    _inherit = "account.payment.register"
+
+    @api.depends('payment_type', 'journal_id', 'partner_id')
+    def _compute_payment_method_id(self):
+        super()._compute_payment_method_id()
+        for record in self:
+            preferred = record.partner_id.with_company(record.company_id).property_payment_method_id
+            if record.payment_type == 'outbound' and preferred in record.journal_id.outbound_payment_method_ids:
+                record.payment_method_id = preferred
+
 class AccountPayment(models.Model):
     _inherit = "account.payment"
 
@@ -30,12 +41,12 @@ class AccountPayment(models.Model):
 
     @api.constrains('check_number', 'journal_id')
     def _constrains_check_number(self):
-        if not self:
+        payment_checks = self.filtered('check_number')
+        if not payment_checks:
             return
-        try:
-            self.mapped(lambda p: str(int(p.check_number)))
-        except ValueError:
-            raise ValidationError(_('Check numbers can only consist of digits'))
+        for payment_check in payment_checks:
+            if not payment_check.check_number.isdecimal():
+                raise ValidationError(_('Check numbers can only consist of digits'))
         self.flush()
         self.env.cr.execute("""
             SELECT payment.check_number, move.journal_id
@@ -50,8 +61,10 @@ class AccountPayment(models.Model):
                AND payment.id IN %(ids)s
                AND move.state = 'posted'
                AND other_move.state = 'posted'
+               AND payment.check_number IS NOT NULL
+               AND other_payment.check_number IS NOT NULL
         """, {
-            'ids': tuple(self.ids),
+            'ids': tuple(payment_checks.ids),
         })
         res = self.env.cr.dictfetchall()
         if res:
